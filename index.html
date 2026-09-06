@@ -1807,6 +1807,10 @@ async function renderChatLogs(e) {
     }), o.appendChild(d), e.appendChild(o)
 }
 const GROUP_CHATS = {
+    __everyone__: {
+        label: "🌐 Everyone",
+        visibleTo: e => !!USERS[e]
+    },
     __admin_team__: {
         label: "👥 Admin Team",
         visibleTo: e => "admin" === USERS[e].team
