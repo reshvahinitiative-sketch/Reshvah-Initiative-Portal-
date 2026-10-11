@@ -211,6 +211,7 @@ try {
     console.warn("EmailJS not initialized yet", e)
 }
 async function sendTaskEmail(e, t, a, n, s) {
+    if (!(e = contactEmail(e))) return;
     if (emailjsReady) try {
         await emailjs.send("service_udvspnz", "template_1i753e1", {
             to_email: e,
@@ -225,6 +226,7 @@ async function sendTaskEmail(e, t, a, n, s) {
     }
 }
 async function sendAnnouncementEmail(e, t, a, n) {
+    if (!(e = contactEmail(e))) return;
     if (emailjsReady) try {
         await emailjs.send("service_udvspnz", "template_vjsafuk", {
             to_email: e,
@@ -248,6 +250,15 @@ const USERS = {
         },
         "almighty2569@gmail.com": {
             name: "Shankhadip Sarkar",
+            team: "editing"
+        },
+        "mdshoaibakhtar691@gmail.com": {
+            name: "Md Shoaib Akhtar",
+            greet: "Shoaib",
+            team: "editing"
+        },
+        "grairauata@gmail.com": {
+            name: "Prashant Attri",
             team: "editing"
         },
         "manzilsingh2107@gmail.com": {
@@ -418,7 +429,89 @@ const USERS = {
 let currentUser = null,
     activeTab = "today",
     adminTeamFilter = null,
+    adminMemberFilter = null,
     chatOpenWith = null;
+
+/* ---- Several people on one team: each person's work log and tasks stay separate ---- */
+function userKey(e) {
+    return e.replace(/[^a-z0-9]/gi, "_")
+}
+
+function teamMembers(e) {
+    return Object.keys(USERS).filter(t => USERS[t].team === e)
+}
+
+function contactEmail(e) {
+    const t = USERS[e];
+    return t && t.email ? t.email : e && e.includes("@") ? e : null
+}
+
+/* Each person writes to their own work-log record, so two teammates saving at the
+   same moment can never overwrite each other. Older entries stay in the original
+   shared team record and are still read from there. */
+function memberLogKey(e, t) {
+    return "reshvah_log_" + e + "__" + userKey(t)
+}
+
+function logStoreOf(e) {
+    return e._store || "reshvah_log_" + e.team
+}
+async function loadTeamLog(e) {
+    const t = ["reshvah_log_" + e].concat(teamMembers(e).map(t => memberLogKey(e, t))),
+        a = await Promise.all(t.map(e => loadJSON(e, []))),
+        n = [];
+    return a.forEach((e, a) => (Array.isArray(e) ? e : []).forEach(e => n.push({
+        ...e,
+        _store: t[a]
+    }))), n.sort((e, t) => new Date(t.tsRaw || 0) - new Date(e.tsRaw || 0)), n
+}
+
+/* A task belongs to a team and, optionally, to one person in it.
+   Tasks created before per-person assignment existed carry no assignee at all;
+   they belong to whoever was the team's only member back then, so people who
+   join later start with a clean task list. */
+const LEGACY_TASK_OWNER = {
+    editing: "almighty2569@gmail.com"
+};
+
+function taskAssignee(e) {
+    const t = void 0 === e.assignee || null === e.assignee ? LEGACY_TASK_OWNER[e.team] || "" : e.assignee;
+    return t && USERS[t] && USERS[t].team === e.team ? t : ""
+}
+
+function taskAssigneeName(e) {
+    const t = taskAssignee(e);
+    return t ? USERS[t].name : ""
+}
+
+function taskVisibleTo(e, t) {
+    const a = USERS[t],
+        n = taskAssignee(e);
+    return !!a && e.team === a.team && (!n || n === t)
+}
+
+function taskRecipients(e) {
+    const t = taskAssignee(e);
+    return t ? [t] : teamMembers(e.team)
+}
+
+function taskWho(e, t) {
+    const a = taskAssigneeName(e);
+    return TEAM_LABEL[e.team] + (a ? (t ? ": " : " → ") + a : teamMembers(e.team).length > 1 ? (t ? ": whole team" : " → whole team") : "")
+}
+
+function taskMineLabel(e) {
+    return teamMembers(e.team).length < 2 ? "" : (taskAssigneeName(e) ? "Assigned to you" : "Whole team") + " · "
+}
+
+function assigneeOptionsHtml(e, t) {
+    const a = teamMembers(e);
+    return `<option value="">${a.length>1?"Whole team (all "+a.length+" members)":"Whole team"}</option>` + a.map(e => `<option value="${escapeHtml(e)}" ${e===t?"selected":""}>${escapeHtml(USERS[e].name)}</option>`).join("")
+}
+
+function fillAssigneeSelect(e, t, a) {
+    e && (e.innerHTML = assigneeOptionsHtml(t, a || ""))
+}
 
 function showToast(e, t) {
     let a = document.getElementById("reshvah-toast");
@@ -567,7 +660,7 @@ async function renderShell() {
     const e = "admin" === currentUser.team,
         t = "super" === currentUser.role,
         a = "manager" === currentUser.role;
-    document.getElementById("who-line").textContent = currentUser.name + " · " + (t ? "Managing Director" : e ? "Admin" : TEAM_LABEL[currentUser.team] + (a ? " · Manager" : "")), document.getElementById("greeting-eyebrow").textContent = (t ? "⭐ " : e ? "👑 " : TEAM_ICON[currentUser.team] + " ") + (e ? "Reshvah Initiative — Command Center" : TEAM_LABEL[currentUser.team] + (a ? " · Cross-Team View" : " Workspace")), document.getElementById("greeting-name").textContent = greetingWord() + ", " + currentUser.name.split(" ")[0] + ".", document.getElementById("greeting-sub").textContent = e ? "A full view of today's work across all five teams." : a ? "Your team's work, plus a read-only view across every team." : "Today's focus: continue meaningful work that protects and carries our heritage forward.";
+    document.getElementById("who-line").textContent = currentUser.name + " · " + (t ? "Managing Director" : e ? "Admin" : TEAM_LABEL[currentUser.team] + (a ? " · Manager" : "")), document.getElementById("greeting-eyebrow").textContent = (t ? "⭐ " : e ? "👑 " : TEAM_ICON[currentUser.team] + " ") + (e ? "Reshvah Initiative — Command Center" : TEAM_LABEL[currentUser.team] + (a ? " · Cross-Team View" : " Workspace")), document.getElementById("greeting-name").textContent = greetingWord() + ", " + (currentUser.greet || currentUser.name.split(" ")[0]) + ".", document.getElementById("greeting-sub").textContent = e ? "A full view of today's work across all five teams." : a ? "Your team's work, plus a read-only view across every team." : "Today's focus: continue meaningful work that protects and carries our heritage forward.";
     const n = document.getElementById("team-badge");
     n.textContent = t ? "Managing Director" : e ? "All Teams" : TEAM_LABEL[currentUser.team] + (a ? " · Manager" : ""), n.style.background = e ? "#16130F" : TEAM_COLOR[currentUser.team];
     const mgmtTab = "management" === currentUser.team ? [
@@ -650,7 +743,7 @@ async function renderAdminOverview(e) {
         i = (new Date).toISOString().slice(0, 10),
         o = [];
     for (const e of Object.keys(TEAM_LABEL)) {
-        const i = await loadJSON("reshvah_log_" + e, []);
+        const i = await loadTeamLog(e);
         s[e] = i, a += i.length;
         const r = (new Date).toDateString();
         t += i.filter(e => new Date(e.tsRaw).toDateString() === r).length, i.forEach(t => {
@@ -663,7 +756,7 @@ async function renderAdminOverview(e) {
         c = r.filter(e => "Completed" !== e.status).length;
     r.forEach(e => {
         e.due && e.due < i && "Completed" !== e.status && o.push({
-            label: 'Overdue: "' + e.title + '" (' + TEAM_LABEL[e.team] + ")"
+            label: 'Overdue: "' + e.title + '" (' + taskWho(e) + ")"
         })
     });
     const d = await loadJSON("reshvah_notifications", []),
@@ -737,8 +830,8 @@ async function renderAdminOverview(e) {
         const t = s[e],
             a = t[0],
             n = document.createElement("div");
-        n.className = "team-card", n.style.borderTopColor = TEAM_COLOR[e], n.innerHTML = `<h4>${TEAM_ICON[e]} ${TEAM_LABEL[e]}</h4><div class="cnt">${t.length} entries logged</div><div style="font-size:12px;margin-top:8px;color:#d8c9a3;">${a?"Latest: "+(a.data.topic||a.data.task||a.data.personOrg||a.data.project||"Update"):"No submissions yet"}</div>`, n.onclick = () => {
-            adminTeamFilter = e, activeTab = "teams", renderShell()
+        n.className = "team-card", n.style.borderTopColor = TEAM_COLOR[e], n.innerHTML = `<h4>${TEAM_ICON[e]} ${TEAM_LABEL[e]}</h4><div class="cnt">${t.length} entries logged</div>${teamMembers(e).length>1?'<div style="font-size:11.5px;margin-top:6px;color:#d8c9a3;line-height:1.5;">'+teamMembers(e).map(u=>escapeHtml(USERS[u].name)+": "+t.filter(x=>x.author===USERS[u].name).length).join("<br>")+"</div>":""}<div style="font-size:12px;margin-top:8px;color:#d8c9a3;">${a?"Latest: "+(a.data.topic||a.data.task||a.data.personOrg||a.data.project||"Update"):"No submissions yet"}</div>`, n.onclick = () => {
+            adminTeamFilter = e, adminMemberFilter = null, activeTab = "teams", renderShell()
         }, p.appendChild(n)
     }), e.appendChild(p);
     const u = document.createElement("div");
@@ -760,11 +853,11 @@ async function renderAdminTeams(e) {
     t.className = "filter-row";
     const a = document.createElement("div");
     a.className = "chip" + (null === adminTeamFilter ? " active" : ""), a.textContent = "All", a.onclick = () => {
-        adminTeamFilter = null, renderTab(!0)
+        adminTeamFilter = null, adminMemberFilter = null, renderTab(!0)
     }, t.appendChild(a), Object.keys(TEAM_LABEL).forEach(e => {
         const a = document.createElement("div");
         a.className = "chip" + (adminTeamFilter === e ? " active" : ""), a.textContent = TEAM_ICON[e] + " " + TEAM_LABEL[e], a.onclick = () => {
-            adminTeamFilter = e, renderTab(!0)
+            adminTeamFilter = e, adminMemberFilter = null, renderTab(!0)
         }, t.appendChild(a)
     }), e.appendChild(t);
     const n = document.createElement("div");
@@ -774,12 +867,25 @@ async function renderAdminTeams(e) {
     let i = [];
     const o = adminTeamFilter ? [adminTeamFilter] : Object.keys(TEAM_LABEL);
     for (const e of o) {
-        (await loadJSON("reshvah_log_" + e, [])).forEach(t => i.push({
+        (await loadTeamLog(e)).forEach(t => i.push({
             ...t,
             team: e
         }))
     }
-    i.sort((e, t) => new Date(t.tsRaw) - new Date(e.tsRaw)), 0 === i.length && (s.innerHTML = '<div class="empty">No submissions yet for this view.</div>'), i.forEach(e => s.appendChild(entryEl(e, !0))), n.appendChild(s), e.appendChild(n)
+    i.sort((e, t) => new Date(t.tsRaw) - new Date(e.tsRaw));
+    if (adminTeamFilter && teamMembers(adminTeamFilter).length > 1) {
+        const row = document.createElement("div");
+        row.className = "filter-row";
+        const addChip = (label, who) => {
+            const chip = document.createElement("div");
+            chip.className = "chip" + (adminMemberFilter === who ? " active" : ""), chip.textContent = label, chip.onclick = () => {
+                adminMemberFilter = who, renderTab(!0)
+            }, row.appendChild(chip)
+        };
+        addChip("👥 All members (" + i.length + ")", null), teamMembers(adminTeamFilter).forEach(u => addChip(USERS[u].name + " (" + i.filter(x => x.author === USERS[u].name).length + ")", u)), e.appendChild(row);
+        adminMemberFilter && USERS[adminMemberFilter] && USERS[adminMemberFilter].team === adminTeamFilter && (i = i.filter(x => x.author === USERS[adminMemberFilter].name), n.querySelector("h3").textContent = USERS[adminMemberFilter].name + " — full log")
+    }
+    0 === i.length && (s.innerHTML = '<div class="empty">No submissions yet for this view.</div>'), i.forEach(e => s.appendChild(entryEl(e, !0))), n.appendChild(s), e.appendChild(n)
 }
 async function renderManagerTeamView(e) {
     const t = document.createElement("div");
@@ -802,7 +908,7 @@ async function renderManagerTeamView(e) {
     let o = [];
     const r = adminTeamFilter ? [adminTeamFilter] : Object.keys(TEAM_LABEL);
     for (const e of r) {
-        (await loadJSON("reshvah_log_" + e, [])).forEach(t => o.push({
+        (await loadTeamLog(e)).forEach(t => o.push({
             ...t,
             team: e
         }))
@@ -813,7 +919,7 @@ async function renderManagerTeamView(e) {
     const d = await loadJSON("reshvah_tasks", []);
     0 === d.length && (c.innerHTML += '<div class="empty">No tasks yet.</div>'), d.forEach(e => {
         const t = document.createElement("div");
-        t.className = "task-card", t.innerHTML = `<div class="task-title">${richText(e.title)}</div><div class="task-meta">${TEAM_LABEL[e.team]} · ${e.priority} priority${e.due?" · Due "+e.due:""} · ${e.status}</div>${e.desc?`<div class="task-desc">${richText(e.desc)}</div>`:""}`, c.appendChild(t)
+        t.className = "task-card", t.innerHTML = `<div class="task-title">${richText(e.title)}</div><div class="task-meta">${taskWho(e)} · ${e.priority} priority${e.due?" · Due "+e.due:""} · ${e.status}</div>${e.desc?`<div class="task-desc">${richText(e.desc)}</div>`:""}`, c.appendChild(t)
     }), e.appendChild(c)
 }
 async function renderPresence(e, t) {
@@ -904,7 +1010,7 @@ function entryEl(e, t) {
         const o = document.createElement("button");
         o.className = "btn-outline", o.style.fontSize = "11.5px", o.textContent = "Request Revision";
         const r = async t => {
-            const a = await loadJSON("reshvah_log_" + e.team, []),
+            const a = await loadJSON(logStoreOf(e), []),
                 s = a.findIndex(t => t.id === e.id);
             if (s > -1) {
                 a[s].feedback || (a[s].feedback = []), a[s].feedback.push({
@@ -917,7 +1023,7 @@ function entryEl(e, t) {
                         minute: "2-digit"
                     })
                 });
-                if (!await saveJSON("reshvah_log_" + e.team, a)) return;
+                if (!await saveJSON(logStoreOf(e), a)) return;
                 await logAudit("Admin " + t.toLowerCase() + " — " + i + " (" + e.author + ")"), await pushNotificationForUser(e.author, "Admin " + t.toLowerCase() + ' your submission: "' + i + '"' + (n.value.trim() ? " — " + n.value.trim() : "")), showToast("Feedback saved.", !1), renderTab(!0)
             }
         };
@@ -990,7 +1096,7 @@ function buildEntryEditForm(e) {
         fields.forEach(f => {
             "media" === f.type ? newData[f.key] = mediaState.value || null : newData[f.key] = (document.getElementById("ef_" + e.id + "_" + f.key).value || "").trim()
         });
-        const log = await loadJSON("reshvah_log_" + e.team, []),
+        const log = await loadJSON(logStoreOf(e), []),
             idx = log.findIndex(x => x.id === e.id);
         if (idx > -1) {
             log[idx].revisionHistory || (log[idx].revisionHistory = []), log[idx].revisionHistory.push({
@@ -1002,7 +1108,7 @@ function buildEntryEditForm(e) {
                 hour: "2-digit",
                 minute: "2-digit"
             });
-            if (!await saveJSON("reshvah_log_" + e.team, log)) return;
+            if (!await saveJSON(logStoreOf(e), log)) return;
             await logAudit(currentUser.name + " revised a " + TEAM_LABEL[e.team] + " submission after feedback"), await pushNotification(currentUser.name + " revised their submission and resubmitted it for review."), showToast("Resubmitted — the founder will take another look.", !1), editingEntryId = null, renderTab(!1)
         }
     };
@@ -1013,7 +1119,7 @@ function buildEntryEditForm(e) {
 }
 async function renderMyWork(e) {
     const t = currentUser.team,
-        a = (await loadJSON("reshvah_log_" + t, [])).filter(e => e.author === currentUser.name),
+        a = (await loadTeamLog(t)).filter(e => e.author === currentUser.name),
         n = await loadJSON("reshvah_notifications_user_" + currentUser.name.replace(/\s+/g, "_"), []),
         s = n.filter(e => !e.read);
     if (n.length > 0) {
@@ -1055,13 +1161,13 @@ async function renderMyWork(e) {
         [String(a.filter(e => new Date(e.tsRaw).toDateString() === o).length), "Entries Today"],
         [String(a.length), "Total Submissions"]
     ].map(([e, t]) => `<div class="stat-card"><div class="num">${e}</div><div class="lbl">${t}</div></div>`).join(""), e.appendChild(i);
-    const r = (await loadJSON("reshvah_tasks", [])).filter(e => e.team === t),
+    const r = (await loadJSON("reshvah_tasks", [])).filter(e => taskVisibleTo(e, currentUser.username)),
         c = document.createElement("div");
     c.className = "panel", c.innerHTML = "<h3>✅ Your assigned tasks</h3>", 0 === r.length ? c.innerHTML += '<div class="empty">No tasks assigned yet.</div>' : r.forEach(e => {
         const a = document.createElement("div");
         a.className = "task-card";
         const n = "Completed" === e.status;
-        a.innerHTML = `<div style="display:flex;align-items:center;gap:10px;"><input type="checkbox" ${n?"checked":""} style="accent-color:var(--wine);width:17px;height:17px;flex-shrink:0;"><div><div class="task-title" style="${n?"text-decoration:line-through;color:#9a8a68;":""}">${richText(e.title)}</div><div class="task-meta">${e.priority} priority${e.due?" · Due "+e.due:""}</div></div></div>${e.desc?`<div class="task-desc">${richText(e.desc)}</div>`:""}`;
+        a.innerHTML = `<div style="display:flex;align-items:center;gap:10px;"><input type="checkbox" ${n?"checked":""} style="accent-color:var(--wine);width:17px;height:17px;flex-shrink:0;"><div><div class="task-title" style="${n?"text-decoration:line-through;color:#9a8a68;":""}">${richText(e.title)}</div><div class="task-meta">${taskMineLabel(e)}${e.priority} priority${e.due?" · Due "+e.due:""}</div></div></div>${e.desc?`<div class="task-desc">${richText(e.desc)}</div>`:""}`;
         const s = a.querySelector("input");
         s.onchange = async () => {
             const a = await loadJSON("reshvah_tasks", []),
@@ -1143,7 +1249,7 @@ async function renderEntryForm(e) {
         TEAM_FIELDS[t].forEach(t => {
             "media" === t.type ? e[t.key] = s[t.key] || null : e[t.key] = document.getElementById("f_" + t.key).value.trim()
         });
-        const a = await loadJSON("reshvah_log_" + t, []),
+        const a = await loadJSON(memberLogKey(t, currentUser.username), []),
             n = new Date;
         a.unshift({
             id: Date.now(),
@@ -1157,7 +1263,7 @@ async function renderEntryForm(e) {
             tsRaw: n.toISOString(),
             data: e
         });
-        await saveJSON("reshvah_log_" + t, a) && (await logAudit(currentUser.name + " submitted a " + TEAM_LABEL[t] + " entry"), showToast("Entry submitted successfully.", !1), activeTab = "today", await renderShell())
+        await saveJSON(memberLogKey(t, currentUser.username), a) && (await logAudit(currentUser.name + " submitted a " + TEAM_LABEL[t] + " entry"), showToast("Entry submitted successfully.", !1), activeTab = "today", await renderShell())
     }, a.appendChild(i), e.appendChild(a)
 }
 let taskViewMode = "list";
@@ -1184,7 +1290,7 @@ function renderTaskBoard(e, t, a) {
         const o = t.filter(e => e.status === n);
         i.innerHTML = `<h4><span>${n}</span><span>${o.length}</span></h4>`, o.forEach(e => {
             const t = document.createElement("div");
-            t.className = "kanban-card", t.draggable = !0, t.dataset.id = e.id, t.innerHTML = `<div class="kc-title">${richText(e.title)}</div><div class="kc-meta">${TEAM_LABEL[e.team]} · ${e.priority}${e.due?" · "+e.due:""}</div>`, t.addEventListener("dragstart", e => {
+            t.className = "kanban-card", t.draggable = !0, t.dataset.id = e.id, t.innerHTML = `<div class="kc-title">${richText(e.title)}</div><div class="kc-meta">${taskWho(e)} · ${e.priority}${e.due?" · "+e.due:""}</div>`, t.addEventListener("dragstart", e => {
                 e.dataTransfer.setData("text/plain", String(t.dataset.id))
             }), i.appendChild(t)
         }), i.addEventListener("dragover", e => {
@@ -1201,11 +1307,14 @@ function renderTaskBoard(e, t, a) {
 async function renderTasks(e, t) {
     if (t) {
         const t = document.createElement("div");
-        t.className = "panel", t.innerHTML = "<h3>Assign a task</h3>", t.innerHTML += `\n      <label>Task title</label><input type="text" id="task-title" placeholder="Short title...">\n      <label>Description (optional — describe it fully, no length limit)</label><textarea id="task-desc" rows="5" placeholder="Full details, instructions, links, expectations..."></textarea>\n      <label>Team</label><select id="task-team">${Object.keys(TEAM_LABEL).map(e=>`<option value="${e}">${TEAM_ICON[e]} ${TEAM_LABEL[e]}</option>`).join("")}</select>\n      <label>Priority</label><select id="task-priority"><option>Low</option><option selected>Medium</option><option>High</option></select>\n      <label>Due date</label><input type="date" id="task-due">\n      <label>Attach Photo (optional)</label><input type="file" id="task-media" accept="image/*">\n    `;
+        t.className = "panel", t.innerHTML = "<h3>Assign a task</h3>", t.innerHTML += `\n      <label>Task title</label><input type="text" id="task-title" placeholder="Short title...">\n      <label>Description (optional — describe it fully, no length limit)</label><textarea id="task-desc" rows="5" placeholder="Full details, instructions, links, expectations..."></textarea>\n      <label>Team</label><select id="task-team">${Object.keys(TEAM_LABEL).map(e=>`<option value="${e}">${TEAM_ICON[e]} ${TEAM_LABEL[e]}</option>`).join("")}</select>\n      <label>Assign to</label><select id="task-assignee"></select>\n      <label>Priority</label><select id="task-priority"><option>Low</option><option selected>Medium</option><option>High</option></select>\n      <label>Due date</label><input type="date" id="task-due">\n      <label>Attach Photo (optional)</label><input type="file" id="task-media" accept="image/*">\n    `;
         const a = document.createElement("div");
         a.className = "media-field-preview", t.appendChild(a);
         let n = null;
         setTimeout(() => {
+            const teamSel = document.getElementById("task-team"),
+                whoSel = document.getElementById("task-assignee");
+            teamSel && whoSel && (fillAssigneeSelect(whoSel, teamSel.value, ""), teamSel.onchange = () => fillAssigneeSelect(whoSel, teamSel.value, ""));
             const e = document.getElementById("task-media");
             e && (e.onchange = async () => {
                 const t = e.files[0];
@@ -1229,20 +1338,28 @@ async function renderTasks(e, t) {
                 a = document.getElementById("task-due").value,
                 s = document.getElementById("task-priority").value,
                 d = document.getElementById("task-desc").value.trim(),
+                w = (document.getElementById("task-assignee") || {}).value || "",
                 i = await loadJSON("reshvah_tasks", []);
             i.unshift({
                 id: Date.now(),
                 title: e,
                 desc: d,
                 team: t,
+                assignee: w,
                 priority: s,
                 due: a,
                 status: "To Do",
                 media: n
             });
             if (!await saveJSON("reshvah_tasks", i)) return;
-            await logAudit("Admin assigned task: " + e);
-            const o = Object.keys(USERS).filter(e => USERS[e].team === t);
+            await logAudit("Admin assigned task: " + e + " (" + taskWho({
+                team: t,
+                assignee: w
+            }) + ")");
+            const o = taskRecipients({
+                team: t,
+                assignee: w
+            });
             for (const t of o) await pushNotificationForUser(USERS[t].name, 'New task assigned: "' + e + '"' + (a ? " — due " + a : "") + "."), sendTaskEmail(t, USERS[t].name, e, s, a);
             showToast("Task assigned — notified in-app and by email.", !1), renderTab(!0)
         }, t.appendChild(s), e.appendChild(t);
@@ -1265,10 +1382,10 @@ async function renderTasks(e, t) {
         taskViewMode = "board", renderShell()
     }, viewToggle.appendChild(listBtn), viewToggle.appendChild(boardBtn), e.appendChild(viewToggle);
     let n = await loadJSON("reshvah_tasks", []);
-    if (t || (n = n.filter(e => e.team === currentUser.team)), "board" === taskViewMode) return void renderTaskBoard(e, n, t);
+    if (t || (n = n.filter(e => taskVisibleTo(e, currentUser.username))), "board" === taskViewMode) return void renderTaskBoard(e, n, t);
     const a = document.createElement("div");
     a.className = "panel";
-    a.innerHTML = "<h3>" + (t ? "All tasks" : "Your team's tasks") + "</h3>";
+    a.innerHTML = "<h3>" + (t ? "All tasks" : teamMembers(currentUser.team).length > 1 ? "Your tasks" : "Your team's tasks") + "</h3>";
     0 === n.length && (a.innerHTML += '<div class="empty">No tasks yet.</div>'), n.forEach(e => {
         const n = document.createElement("div");
         if (n.className = "task-card", t && editingTaskId === e.id) {
@@ -1278,7 +1395,7 @@ async function renderTasks(e, t) {
         const top = document.createElement("div");
         top.className = "task-card-top";
         const s = document.createElement("div");
-        if (s.innerHTML = `<div class="task-title">${richText(e.title)}</div><div class="task-meta">${TEAM_LABEL[e.team]} · ${e.priority} priority${e.due?" · Due "+e.due:""}${e.lastEditedAt?" · <i>edited</i>":""}</div>`, e.media) {
+        if (s.innerHTML = `<div class="task-title">${richText(e.title)}</div><div class="task-meta">${taskWho(e)} · ${e.priority} priority${e.due?" · Due "+e.due:""}${e.lastEditedAt?" · <i>edited</i>":""}</div>`, e.media) {
             const t = "video" === e.media.type ? document.createElement("video") : document.createElement("img");
             t.src = e.media.url, t.className = "video" === e.media.type ? "entry-video" : "entry-photo", "video" === e.media.type ? t.controls = !0 : t.onclick = () => openLightbox(e.media.url, e.media.type), s.appendChild(t)
         }
@@ -1312,7 +1429,10 @@ async function renderTasks(e, t) {
 }
 function buildTaskEditForm(e) {
     const wrap = document.createElement("div");
-    wrap.innerHTML = `\n      <label>Task title</label><input type="text" id="et_title_${e.id}" value="${escapeHtml(e.title)}">\n      <label>Description</label><textarea id="et_desc_${e.id}" rows="4">${escapeHtml(e.desc||"")}</textarea>\n      <label>Team</label><select id="et_team_${e.id}">${Object.keys(TEAM_LABEL).map(team=>`<option value="${team}" ${team===e.team?"selected":""}>${TEAM_ICON[team]} ${TEAM_LABEL[team]}</option>`).join("")}</select>\n      <label>Priority</label><select id="et_priority_${e.id}">${["Low","Medium","High"].map(p=>`<option ${p===e.priority?"selected":""}>${p}</option>`).join("")}</select>\n      <label>Due date</label><input type="date" id="et_due_${e.id}" value="${e.due||""}">\n    `;
+    wrap.innerHTML = `\n      <label>Task title</label><input type="text" id="et_title_${e.id}" value="${escapeHtml(e.title)}">\n      <label>Description</label><textarea id="et_desc_${e.id}" rows="4">${escapeHtml(e.desc||"")}</textarea>\n      <label>Team</label><select id="et_team_${e.id}">${Object.keys(TEAM_LABEL).map(team=>`<option value="${team}" ${team===e.team?"selected":""}>${TEAM_ICON[team]} ${TEAM_LABEL[team]}</option>`).join("")}</select>\n      <label>Assign to</label><select id="et_assignee_${e.id}">${assigneeOptionsHtml(e.team,taskAssignee(e))}</select>\n      <label>Priority</label><select id="et_priority_${e.id}">${["Low","Medium","High"].map(p=>`<option ${p===e.priority?"selected":""}>${p}</option>`).join("")}</select>\n      <label>Due date</label><input type="date" id="et_due_${e.id}" value="${e.due||""}">\n    `;
+    const etTeamSel = wrap.querySelector("#et_team_" + e.id),
+        etWhoSel = wrap.querySelector("#et_assignee_" + e.id);
+    etTeamSel.onchange = () => fillAssigneeSelect(etWhoSel, etTeamSel.value, "");
     const btnRow = document.createElement("div");
     btnRow.style.cssText = "display:flex;gap:8px;margin-top:10px;";
     const saveBtn = document.createElement("button");
@@ -1321,13 +1441,14 @@ function buildTaskEditForm(e) {
         if (!newTitle) return;
         const newDesc = document.getElementById("et_desc_" + e.id).value.trim(),
             newTeam = document.getElementById("et_team_" + e.id).value,
+            newAssignee = document.getElementById("et_assignee_" + e.id).value || "",
             newPriority = document.getElementById("et_priority_" + e.id).value,
             newDue = document.getElementById("et_due_" + e.id).value,
             list = await loadJSON("reshvah_tasks", []),
             idx = list.findIndex(x => x.id === e.id);
         if (idx > -1) {
             const before = list[idx],
-                teamChanged = before.team !== newTeam,
+                teamChanged = before.team !== newTeam || taskAssignee(before) !== newAssignee,
                 dueChanged = before.due !== newDue,
                 titleChanged = before.title !== newTitle;
             if (list[idx] = {
@@ -1335,13 +1456,14 @@ function buildTaskEditForm(e) {
                     title: newTitle,
                     desc: newDesc,
                     team: newTeam,
+                    assignee: newAssignee,
                     priority: newPriority,
                     due: newDue,
                     lastEditedBy: currentUser.name,
                     lastEditedAt: (new Date).toISOString()
                 }, !await saveJSON("reshvah_tasks", list)) return;
             if (await logAudit(currentUser.name + ' edited task "' + before.title + '"' + (titleChanged ? ' → "' + newTitle + '"' : "")), teamChanged || titleChanged || dueChanged) {
-                const members = Object.keys(USERS).filter(u => USERS[u].team === newTeam);
+                const members = taskRecipients(list[idx]);
                 for (const u of members) await pushNotificationForUser(USERS[u].name, 'Task updated: "' + newTitle + '"' + (newDue ? " — due " + newDue : ""))
             }
             editingTaskId = null, showToast("Task updated.", !1), renderTab(!0)
@@ -1354,7 +1476,7 @@ function buildTaskEditForm(e) {
 }
 async function renderDeadlines(e, t) {
     let a = await loadJSON("reshvah_tasks", []);
-    t || (a = a.filter(e => e.team === currentUser.team)), a = a.filter(e => e.due).sort((e, t) => new Date(e.due) - new Date(t.due));
+    t || (a = a.filter(e => taskVisibleTo(e, currentUser.username))), a = a.filter(e => e.due).sort((e, t) => new Date(e.due) - new Date(t.due));
     const n = document.createElement("div");
     if (n.className = "panel", n.innerHTML = "<h3>📅 Upcoming deadlines</h3>", 0 === a.length) n.innerHTML += '<div class="empty">No deadlines set yet. Deadlines appear here once a task is assigned with a due date.</div>';
     else {
@@ -1365,7 +1487,7 @@ async function renderDeadlines(e, t) {
                 row = document.createElement("div");
             row.className = "task-row";
             const info = document.createElement("div");
-            if (info.innerHTML = `<div class="task-title">${richText(task.title)}${overdue?" <span style=\"color:var(--wine);font-family:'IBM Plex Mono',monospace;font-size:10.5px;\">OVERDUE</span>":""}</div><div class="task-meta">${TEAM_LABEL[task.team]} · Due ${task.due} · ${task.status}</div>`, row.appendChild(info), isAdmin) {
+            if (info.innerHTML = `<div class="task-title">${richText(task.title)}${overdue?" <span style=\"color:var(--wine);font-family:'IBM Plex Mono',monospace;font-size:10.5px;\">OVERDUE</span>":""}</div><div class="task-meta">${taskWho(task)} · Due ${task.due} · ${task.status}</div>`, row.appendChild(info), isAdmin) {
                 const editWrap = document.createElement("div");
                 editWrap.style.cssText = "display:flex;gap:6px;align-items:center;margin-top:6px;";
                 const dateInput = document.createElement("input");
@@ -1381,7 +1503,7 @@ async function renderDeadlines(e, t) {
                         list[idx].due = newDue, list[idx].lastEditedBy = currentUser.name, list[idx].lastEditedAt = (new Date).toISOString();
                         if (!await saveJSON("reshvah_tasks", list)) return;
                         await logAudit(currentUser.name + ' changed the deadline for "' + task.title + '" from ' + (oldDue || "—") + " to " + newDue);
-                        const members = Object.keys(USERS).filter(u => USERS[u].team === task.team);
+                        const members = taskRecipients(list[idx]);
                         for (const u of members) await pushNotificationForUser(USERS[u].name, 'Deadline updated for "' + task.title + '" — now due ' + newDue + ".");
                         showToast("Deadline updated.", !1), renderTab(!0)
                     }
@@ -1402,9 +1524,10 @@ async function renderManageUsers(e) {
         n.className = "task-row";
         const s = "admin" === t.team ? adminIcon(e) : TEAM_ICON[t.team],
             i = "admin" === t.team ? "Admin" : TEAM_LABEL[t.team];
-        n.innerHTML = `<div><div class="task-title">${s} ${t.name}</div><div class="task-meta">${i} · ${e}</div></div>`;
+        n.innerHTML = `<div><div class="task-title">${s} ${t.name}</div><div class="task-meta">${i} · Username: ${e}</div></div>`;
         const o = document.createElement("button");
         o.className = "btn-outline", o.style.fontSize = "11.5px", o.textContent = "Send password reset", o.onclick = async () => {
+            if (!e.includes("@")) return void showToast(t.name + " has no email on file yet, so a reset link can't be sent. Change this password in the Firebase Console instead.", !0);
             try {
                 await auth.sendPasswordResetEmail(e.includes("@") ? e : e + "@reshvah.app"), showToast("Reset email sent to " + t.name + ".", !1), await logAudit(currentUser.name + " sent a password reset to " + t.name)
             } catch (e) {
@@ -1425,7 +1548,7 @@ async function renderSearch(e) {
         if (a.innerHTML = "", !e) return void(a.innerHTML = '<div class="empty">Type to search across every team\'s entries and tasks.</div>');
         let t = [];
         for (const a of Object.keys(TEAM_LABEL)) {
-            (await loadJSON("reshvah_log_" + a, [])).forEach(n => {
+            (await loadTeamLog(a)).forEach(n => {
                 (JSON.stringify(n.data) + " " + n.author).toLowerCase().includes(e) && t.push({
                     type: "entry",
                     team: a,
@@ -1447,7 +1570,7 @@ async function renderSearch(e) {
             }));
             else {
                 const t = document.createElement("div");
-                t.className = "entry-item", t.innerHTML = `<span class="entry-meta">Task · ${TEAM_LABEL[e.t.team]}</span><b>${e.t.title}</b> — ${e.t.status}`, n.appendChild(t)
+                t.className = "entry-item", t.innerHTML = `<span class="entry-meta">Task · ${taskWho(e.t)}</span><b>${e.t.title}</b> — ${e.t.status}`, n.appendChild(t)
             }
         }), a.appendChild(n)
     })
@@ -1470,7 +1593,7 @@ async function exportPDFReport() {
         const n = {};
         let s = 0;
         for (const e of Object.keys(TEAM_LABEL)) {
-            const t = await loadJSON("reshvah_log_" + e, []);
+            const t = await loadTeamLog(e);
             n[e] = t, s += t.length
         }
         const i = await loadJSON("reshvah_tasks", []),
@@ -1483,7 +1606,7 @@ async function exportPDFReport() {
         const r = i.filter(e => "Completed" !== e.status);
         0 === r.length && (t.text("None.", 14, a), a += 6), r.forEach(e => {
             a > 275 && (t.addPage(), a = 20);
-            const n = "- [" + TEAM_LABEL[e.team] + "] " + e.title + " (" + e.priority + (e.due ? ", due " + e.due : "") + ") — " + e.status,
+            const n = "- [" + taskWho(e, !0) + "] " + e.title + " (" + e.priority + (e.due ? ", due " + e.due : "") + ") — " + e.status,
                 s = t.splitTextToSize(n, 180);
             t.text(s, 14, a), a += 6 * s.length
         }), t.save("reshvah_activity_report_" + (new Date).toISOString().slice(0, 10) + ".pdf"), showToast("PDF report downloaded.", !1)
@@ -1494,7 +1617,7 @@ async function exportPDFReport() {
 async function exportActivityCSV() {
     let e = [];
     for (const t of Object.keys(TEAM_LABEL)) {
-        (await loadJSON("reshvah_log_" + t, [])).forEach(a => e.push({
+        (await loadTeamLog(t)).forEach(a => e.push({
             date: a.ts,
             team: TEAM_LABEL[t],
             author: a.author,
